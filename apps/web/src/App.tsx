@@ -63,6 +63,11 @@ type ApiCVRecord = CVPayload & {
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000'
 const PRESENT_VALUES = new Set(['present', 'current', 'now'])
+const CV_STYLES = [
+  { id: 'classic', name: 'Classic', description: 'Editorial and timeless', swatch: 'navy' },
+  { id: 'minimal', name: 'Minimal', description: 'Quiet and compact', swatch: 'charcoal' },
+  { id: 'modern', name: 'Modern', description: 'Bold and confident', swatch: 'blue' },
+] as const
 
 const emptyExperience = (): Experience => ({
   company: '',
@@ -412,21 +417,24 @@ function App() {
   return (
     <main className={`layout ${isDarkMode ? 'dark' : ''}`}>
       <header className="page-header">
-        <div>
-          <span className="eyebrow">CAREER STUDIO</span>
-          <h1>Build a CV that gets read.</h1>
-          <p>Shape an ATS-ready story, preview every change, and export with confidence.</p>
+        <div className="brand-lockup">
+          <span className="brand-mark" aria-hidden="true">C</span>
+          <div>
+            <span className="eyebrow">CAREER STUDIO</span>
+            <h1>Build a CV that gets read.</h1>
+            <p>Shape an ATS-ready story, preview every change, and export with confidence.</p>
+          </div>
         </div>
         <div className="topbar">
-          <button type="button" onClick={generatePdf}>Generate PDF</button>
           <button type="button" className="ghost" aria-pressed={isDarkMode} onClick={() => setIsDarkMode((v) => !v)}>
             {isDarkMode ? 'Light Mode' : 'Dark Mode'}
           </button>
           <button type="button" className="ghost" onClick={fillDummyData}>Fill Dummy Data</button>
+          <button type="button" className="primary-action" onClick={generatePdf}>Export PDF <span aria-hidden="true">&#8599;</span></button>
         </div>
       </header>
 
-      <section className="version-bar card">
+      <section className="version-bar card" aria-label="CV version controls">
         <label>
           CV Version
           <select
@@ -463,26 +471,38 @@ function App() {
       <section className="workspace">
         <form onSubmit={saveDraft} className="card editor">
           <div className="section-heading"><div><span className="step">01</span><h2>Editor</h2></div><p>Fields update the preview instantly.</p></div>
+          <fieldset className="style-fieldset">
+            <legend>CV Style</legend>
+            <div className="style-picker">
+              {CV_STYLES.map((option) => (
+                <label className={`style-option ${style === option.id ? 'selected' : ''}`} key={option.id}>
+                  <input
+                    type="radio"
+                    name="cv-style"
+                    value={option.id}
+                    checked={style === option.id}
+                    onChange={(e) => setStyle(e.target.value)}
+                  />
+                  <span className={`style-swatch ${option.swatch}`} aria-hidden="true"><i /><i /><i /></span>
+                  <span><strong>{option.name}</strong><small>{option.description}</small></span>
+                  <b aria-hidden="true">{style === option.id ? '✓' : ''}</b>
+                </label>
+              ))}
+            </div>
+          </fieldset>
+
           <div className="grid">
             <label>
               Version Name
               <input value={versionName} onChange={(e) => setVersionName(e.target.value)} required />
             </label>
             <label>
-              CV Style
-              <select value={style} onChange={(e) => setStyle(e.target.value)}>
-                <option value="classic">Classic ATS</option>
-                <option value="minimal">Minimal ATS</option>
-                <option value="modern">Modern ATS</option>
-              </select>
-            </label>
-          </div>
-
-          <div className="grid">
-            <label>
               Full Name
               <input value={fullName} onChange={(e) => setFullName(e.target.value)} required />
             </label>
+          </div>
+
+          <div className="grid single-feature">
             <label>
               Title
               <input value={title} onChange={(e) => setTitle(e.target.value)} required />
@@ -606,48 +626,67 @@ function App() {
           </div>
         </form>
 
-        <aside className={`card preview-pane preview-${previewPayload.style}`} aria-label="Live CV preview">
-          <div className="preview-toolbar"><h2>Live Preview</h2><span><i /> Synced</span></div>
-          <p className="preview-version">{previewPayload.version_name}</p>
-          <h3>{previewPayload.full_name || 'Your Name'}</h3>
-          <p className="preview-title">{previewPayload.title || 'Your Title'}</p>
-          <p>{previewPayload.summary || 'Your summary will appear here.'}</p>
-
-          {(previewPayload.programmer_profile.github_url || previewPayload.programmer_profile.portfolio_url) && (
-            <div className="preview-links">
-              {previewPayload.programmer_profile.github_url && <a href={previewPayload.programmer_profile.github_url} target="_blank" rel="noreferrer">GitHub ↗</a>}
-              {previewPayload.programmer_profile.portfolio_url && <a href={previewPayload.programmer_profile.portfolio_url} target="_blank" rel="noreferrer">Portfolio ↗</a>}
-            </div>
-          )}
-
-          <h4>Programmer Profile</h4>
-          <div className="preview-grid">
-            <p><strong>Languages:</strong> {previewPayload.programmer_profile.programming_languages || '-'}</p>
-            <p><strong>Frameworks:</strong> {previewPayload.programmer_profile.frameworks || '-'}</p>
-            <p><strong>Databases:</strong> {previewPayload.programmer_profile.databases || '-'}</p>
-            <p><strong>Tools:</strong> {previewPayload.programmer_profile.tools || '-'}</p>
+        <aside className="preview-shell" aria-label="Live CV preview">
+          <div className="preview-toolbar">
+            <div><span className="eyebrow">DOCUMENT PREVIEW</span><h2>Live Preview</h2></div>
+            <span><i /> Synced</span>
           </div>
+          <div className={`preview-pane preview-${previewPayload.style}`}>
+            <div className="preview-header">
+              <p className="preview-version">{previewPayload.version_name}</p>
+              <h3>{previewPayload.full_name || 'Your Name'}</h3>
+              <p className="preview-title">{previewPayload.title || 'Your Title'}</p>
 
-          <h4>Experience (Recent to Oldest)</h4>
-          <p><strong>Date format:</strong> {previewPayload.date_format}</p>
-          {previewExperiences.map((exp, index) => (
-            <article className="preview-item" key={`pv-exp-${index}`}>
-              <p className="preview-item-title">{exp.role || 'Role'} - {exp.company || 'Company'}</p>
-              <p className="preview-item-date">
-                {formatDateValue(exp.start_date, previewPayload.date_format)} to {formatDateValue(exp.end_date, previewPayload.date_format)}
-              </p>
-              <p>{exp.bullets || '-'}</p>
-            </article>
-          ))}
+              {(previewPayload.programmer_profile.github_url || previewPayload.programmer_profile.portfolio_url) && (
+                <div className="preview-links">
+                  {previewPayload.programmer_profile.github_url && <a href={previewPayload.programmer_profile.github_url} target="_blank" rel="noreferrer">GitHub</a>}
+                  {previewPayload.programmer_profile.portfolio_url && <a href={previewPayload.programmer_profile.portfolio_url} target="_blank" rel="noreferrer">Portfolio</a>}
+                </div>
+              )}
+            </div>
 
-          <h4>Certifications</h4>
-          {previewPayload.certifications.length === 0 ? <p className="empty-note">Add a certification to show it here.</p> : previewPayload.certifications.map((cert, index) => (
-            <article className="preview-item" key={`pv-cert-${index}`}>
-              <p className="preview-item-title">{cert.name}</p>
-              <p>{cert.issuer} - {cert.year}</p>
-              {cert.credential_id ? <p>Credential ID: {cert.credential_id}</p> : null}
-            </article>
-          ))}
+            <div className="preview-body">
+              <section className="preview-section">
+                <h4>Professional Summary</h4>
+                <p>{previewPayload.summary || 'Your summary will appear here.'}</p>
+              </section>
+
+              <section className="preview-section">
+                <h4>Programmer Profile</h4>
+                <div className="preview-grid">
+                  <p><strong>Languages</strong><span>{previewPayload.programmer_profile.programming_languages || '-'}</span></p>
+                  <p><strong>Frameworks</strong><span>{previewPayload.programmer_profile.frameworks || '-'}</span></p>
+                  <p><strong>Databases</strong><span>{previewPayload.programmer_profile.databases || '-'}</span></p>
+                  <p><strong>Tools</strong><span>{previewPayload.programmer_profile.tools || '-'}</span></p>
+                </div>
+              </section>
+
+              <section className="preview-section">
+                <h4>Experience</h4>
+                {previewExperiences.map((exp, index) => (
+                  <article className="preview-item" key={`pv-exp-${index}`}>
+                    <div className="preview-item-heading">
+                      <div><p className="preview-item-title">{exp.role || 'Role'}</p><p className="preview-company">{exp.company || 'Company'}</p></div>
+                      <p className="preview-item-date">
+                        {formatDateValue(exp.start_date, previewPayload.date_format)} - {formatDateValue(exp.end_date, previewPayload.date_format)}
+                      </p>
+                    </div>
+                    <p className="preview-bullet">{exp.bullets || 'Add an achievement with a measurable result.'}</p>
+                  </article>
+                ))}
+              </section>
+
+              <section className="preview-section">
+                <h4>Certifications</h4>
+                {previewPayload.certifications.length === 0 ? <p className="empty-note">Add a certification to show it here.</p> : previewPayload.certifications.map((cert, index) => (
+                  <article className="preview-item certification-item" key={`pv-cert-${index}`}>
+                    <div><p className="preview-item-title">{cert.name}</p><p>{cert.issuer}</p></div>
+                    <div><p className="preview-item-date">{cert.year}</p>{cert.credential_id ? <p className="credential">ID: {cert.credential_id}</p> : null}</div>
+                  </article>
+                ))}
+              </section>
+            </div>
+          </div>
         </aside>
       </section>
 

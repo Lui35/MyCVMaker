@@ -1,7 +1,7 @@
 from datetime import datetime
 from io import BytesIO
 
-from reportlab.lib.colors import HexColor, black, white
+from reportlab.lib.colors import HexColor, white
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import mm
 from reportlab.pdfbase import pdfmetrics
@@ -14,210 +14,302 @@ def generate_cv_pdf(payload: CVPayload) -> bytes:
     theme = _get_theme(payload.style)
     buffer = BytesIO()
     pdf = canvas.Canvas(buffer, pagesize=A4)
+    pdf.setTitle(f"{payload.full_name} - CV")
+    pdf.setAuthor(payload.full_name)
+    pdf.setSubject("Curriculum Vitae")
+
     page_width, page_height = A4
     margin = theme["margin"]
     content_width = page_width - (2 * margin)
-    y = page_height - margin
+    bottom_limit = 19 * mm
     page_number = 1
+    y = page_height - margin
 
-    def finish_page() -> None:
-        pdf.setStrokeColor(theme["accent_soft"])
-        pdf.setLineWidth(0.4)
-        pdf.line(margin, 12 * mm, page_width - margin, 12 * mm)
+    def draw_page_chrome() -> None:
+        if theme["style"] == "classic":
+            pdf.setFillColor(theme["accent"])
+            pdf.rect(0, page_height - 4 * mm, page_width, 4 * mm, stroke=0, fill=1)
+        elif theme["style"] == "modern" and page_number > 1:
+            pdf.setFillColor(theme["accent"])
+            pdf.rect(0, page_height - 6 * mm, page_width, 6 * mm, stroke=0, fill=1)
+
+    def draw_footer() -> None:
+        pdf.setStrokeColor(theme["rule"])
+        pdf.setLineWidth(0.45)
+        pdf.line(margin, 13 * mm, page_width - margin, 13 * mm)
         pdf.setFillColor(theme["muted"])
-        pdf.setFont("Helvetica", 7.5)
-        pdf.drawString(margin, 8.5 * mm, payload.full_name)
-        pdf.drawRightString(page_width - margin, 8.5 * mm, f"Page {page_number}")
+        pdf.setFont("Helvetica", 7)
+        pdf.drawString(margin, 9 * mm, payload.full_name)
+        pdf.drawRightString(page_width - margin, 9 * mm, f"{page_number:02d}")
 
-    def ensure_space(lines_needed: int) -> None:
+    def new_page() -> None:
         nonlocal y, page_number
-        if y > 18 * mm + (lines_needed * theme["line_gap"] * mm):
-            return
-        finish_page()
+        draw_footer()
         pdf.showPage()
         page_number += 1
-        y = page_height - 18 * mm
-        _draw_page_chrome(pdf, theme, page_width, page_height)
+        draw_page_chrome()
+        y = page_height - (15 * mm if theme["style"] == "modern" else margin)
 
-    def draw_line(text: str, *, size: int = 10, bold: bool = False, color=black, indent_mm: float = 0) -> None:
+    def ensure_space(height_mm: float) -> None:
+        if y - (height_mm * mm) < bottom_limit:
+            new_page()
+
+    def wrapped_lines(text: str, width: float, font: str, size: float) -> list[str]:
+        return _wrap_text(text, width, font, size)
+
+    def draw_wrapped(
+        text: str,
+        *,
+        x: float = margin,
+        width: float = content_width,
+        font: str = "Helvetica",
+        size: float = 9.2,
+        color=None,
+        leading_mm: float | None = None,
+        prefix: str = "",
+        hanging_mm: float = 0,
+    ) -> None:
         nonlocal y
-        ensure_space(1)
-        pdf.setFillColor(color)
-        pdf.setFont("Helvetica-Bold" if bold else "Helvetica", size)
-        pdf.drawString(margin + indent_mm * mm, y, text)
-        y -= theme["line_gap"] * mm
-
-    def draw_multiline(text: str, *, size: int = 10, color=black, indent_mm: float = 0) -> None:
-        available = content_width - indent_mm * mm
-        for line in _wrap_text(text, available, "Helvetica", size):
-            draw_line(line, size=size, color=color, indent_mm=indent_mm)
+        line_gap = leading_mm or theme["body_leading"]
+        prefix_width = pdfmetrics.stringWidth(prefix, font, size) if prefix else 0
+        lines = wrapped_lines(text, width - prefix_width, font, size)
+        ensure_space(max(1, len(lines)) * line_gap)
+        pdf.setFont(font, size)
+        pdf.setFillColor(color or theme["text"])
+        for index, line in enumerate(lines):
+            line_x = x
+            if index == 0 and prefix:
+                pdf.drawString(x, y, prefix)
+                line_x += prefix_width
+            elif index > 0 and hanging_mm:
+                line_x += hanging_mm * mm
+            pdf.drawString(line_x, y, line)
+            y -= line_gap * mm
 
     def draw_section(title: str) -> None:
         nonlocal y
-        y -= 1.8 * mm
-        ensure_space(2)
-        pdf.setFillColor(theme["accent"])
-        pdf.setFont("Helvetica-Bold", 9.5)
-        pdf.drawString(margin, y, title.upper() if theme["section_upper"] else title)
-        if theme["section_rule"]:
-            pdf.setStrokeColor(theme["accent_soft"])
-            pdf.setLineWidth(0.8)
-            pdf.line(margin, y - 1.6 * mm, page_width - margin, y - 1.6 * mm)
-        y -= 5.2 * mm
+        y -= theme["section_before"] * mm
+        ensure_space(10)
+        if theme["style"] == "classic":
+            pdf.setFont("Helvetica-Bold", 8.4)
+            pdf.setFillColor(theme["accent"])
+            pdf.drawString(margin, y, title.upper())
+            title_width = pdfmetrics.stringWidth(title.upper(), "Helvetica-Bold", 8.4)
+            pdf.setStrokeColor(theme["rule"])
+            pdf.setLineWidth(0.7)
+            pdf.line(margin + title_width + 5 * mm, y + 1.1 * mm, page_width - margin, y + 1.1 * mm)
+        elif theme["style"] == "minimal":
+            pdf.setFont("Helvetica-Bold", 8.2)
+            pdf.setFillColor(theme["accent"])
+            pdf.drawString(margin, y, title.upper())
+        else:
+            pdf.setFillColor(theme["accent"])
+            pdf.roundRect(margin, y - 1.4 * mm, 3 * mm, 3 * mm, 1 * mm, stroke=0, fill=1)
+            pdf.setFont("Helvetica-Bold", 8.7)
+            pdf.drawString(margin + 6 * mm, y, title.upper())
+            pdf.setStrokeColor(theme["rule"])
+            pdf.setLineWidth(0.55)
+            pdf.line(margin + 6 * mm, y - 2.2 * mm, page_width - margin, y - 2.2 * mm)
+        y -= theme["section_after"] * mm
 
-    _draw_page_chrome(pdf, theme, page_width, page_height)
+    draw_page_chrome()
 
     # Header
-    if theme["header_fill"]:
-        pdf.setFillColor(theme["header_fill"])
-        pdf.rect(0, page_height - 39 * mm, page_width, 39 * mm, stroke=0, fill=1)
-        y = page_height - 13 * mm
-        draw_line(payload.full_name, size=22, bold=True, color=white)
-        draw_line(payload.title, size=10.5, color=theme["header_subtext"])
-        links = "  |  ".join(filter(None, [payload.programmer_profile.github_url, payload.programmer_profile.portfolio_url]))
+    links = "  |  ".join(filter(None, [_display_url(payload.programmer_profile.github_url), _display_url(payload.programmer_profile.portfolio_url)]))
+    if theme["style"] == "modern":
+        header_height = 38 * mm
+        pdf.setFillColor(theme["accent"])
+        pdf.rect(0, page_height - header_height, page_width, header_height, stroke=0, fill=1)
+        pdf.setFillColor(theme["highlight"])
+        pdf.rect(margin, page_height - 14 * mm, 9 * mm, 1.5 * mm, stroke=0, fill=1)
+        pdf.setFillColor(white)
+        pdf.setFont("Helvetica-Bold", 22)
+        pdf.drawString(margin, page_height - 22 * mm, payload.full_name)
+        pdf.setFont("Helvetica", 10)
+        pdf.setFillColor(theme["header_subtext"])
+        pdf.drawString(margin, page_height - 28 * mm, payload.title)
         if links:
-            draw_line(links, size=8, color=theme["header_subtext"])
-        y = page_height - 45 * mm
+            pdf.setFont("Helvetica", 7.5)
+            pdf.drawString(margin, page_height - 33 * mm, links)
+        y = page_height - header_height - 7 * mm
+    elif theme["style"] == "classic":
+        pdf.setFillColor(theme["accent"])
+        pdf.setFont("Times-Bold", 24)
+        pdf.drawString(margin, y, payload.full_name)
+        y -= 6.2 * mm
+        pdf.setFont("Helvetica-Bold", 9.2)
+        pdf.setFillColor(theme["muted"])
+        pdf.drawString(margin, y, payload.title.upper())
+        if links:
+            pdf.setFont("Helvetica", 7.6)
+            pdf.setFillColor(theme["accent"])
+            pdf.drawRightString(page_width - margin, y, links)
+        y -= 4.2 * mm
     else:
-        draw_line(payload.full_name, size=22, bold=True, color=theme["accent"])
-        draw_line(payload.title, size=10.5, color=theme["muted"])
-        links = "  |  ".join(filter(None, [payload.programmer_profile.github_url, payload.programmer_profile.portfolio_url]))
+        pdf.setFillColor(theme["accent"])
+        pdf.setFont("Helvetica-Bold", 21)
+        pdf.drawString(margin, y, payload.full_name)
+        y -= 6 * mm
+        pdf.setFont("Helvetica", 9.5)
+        pdf.setFillColor(theme["muted"])
+        pdf.drawString(margin, y, payload.title)
+        y -= 4.4 * mm
         if links:
-            draw_line(links, size=8, color=theme["accent"])
-        y -= 1.2 * mm
+            pdf.setFont("Helvetica", 7.4)
+            pdf.drawString(margin, y, links)
+            y -= 3.6 * mm
 
     draw_section("Professional Summary")
-    draw_multiline(payload.summary, size=9.5, color=theme["text"])
+    draw_wrapped(payload.summary, size=theme["body_size"], leading_mm=theme["body_leading"])
 
     profile_values = [
-        ("Programming Languages", payload.programmer_profile.programming_languages),
+        ("Languages", payload.programmer_profile.programming_languages),
         ("Frameworks", payload.programmer_profile.frameworks),
         ("Databases", payload.programmer_profile.databases),
         ("Tools", payload.programmer_profile.tools),
     ]
     filled_profile_values = [(label, value.strip()) for label, value in profile_values if value.strip()]
     if filled_profile_values:
-        draw_section("Programmer Profile")
+        draw_section("Technical Profile")
+        label_width = 36 * mm
         for label, value in filled_profile_values:
-            ensure_space(1)
+            value_lines = wrapped_lines(value, content_width - label_width, "Helvetica", theme["body_size"])
+            ensure_space(len(value_lines) * theme["body_leading"])
+            pdf.setFont("Helvetica-Bold", 7.6)
             pdf.setFillColor(theme["muted"])
-            pdf.setFont("Helvetica-Bold", 8.5)
             pdf.drawString(margin, y, label.upper())
+            pdf.setFont("Helvetica", theme["body_size"])
             pdf.setFillColor(theme["text"])
-            pdf.setFont("Helvetica", 9.5)
-            pdf.drawString(margin + 48 * mm, y, value)
-            y -= theme["line_gap"] * mm
+            for line_index, line in enumerate(value_lines):
+                pdf.drawString(margin + label_width, y, line)
+                y -= theme["body_leading"] * mm
+                if line_index == 0:
+                    continue
 
-    draw_section("Experience")
-    for exp in payload.experiences:
-        ensure_space(6)
-        pdf.setFillColor(theme["accent"])
-        pdf.setFont("Helvetica-Bold", 10.5)
-        pdf.drawString(margin, y, exp.role)
-        start_label = _format_date(exp.start_date, payload.date_format)
-        end_label = _format_date(exp.end_date, payload.date_format)
-        pdf.setFillColor(theme["muted"])
-        pdf.setFont("Helvetica", 8.5)
-        pdf.drawRightString(page_width - margin, y, f"{start_label} - {end_label}")
-        y -= 4.4 * mm
-        draw_line(exp.company, size=9, bold=True, color=theme["text"])
-        for bullet in _explode_bullets(exp.bullets):
-            bullet_prefix = "-"
-            draw_multiline(
-                f"{bullet_prefix} {bullet}",
-                size=9.2,
-                color=theme["text"],
-                indent_mm=2.0,
-            )
-        y -= 1.2 * mm
+    if payload.experiences:
+        draw_section("Experience")
+        for exp_index, exp in enumerate(payload.experiences):
+            bullets = _explode_bullets(exp.bullets)
+            ensure_space(14 + min(2, len(bullets)) * theme["body_leading"])
+            date_label = f"{_format_date(exp.start_date, payload.date_format)} - {_format_date(exp.end_date, payload.date_format)}"
+            role_x = margin + (5 * mm if theme["style"] == "modern" else 0)
+            role_width = content_width - 55 * mm
+            if theme["style"] == "modern":
+                pdf.setFillColor(theme["highlight"])
+                pdf.roundRect(margin, y - 1 * mm, 2.4 * mm, 2.4 * mm, .7 * mm, stroke=0, fill=1)
+            role_lines = wrapped_lines(exp.role, role_width, "Helvetica-Bold", 10.2)
+            pdf.setFont("Helvetica-Bold", 10.2)
+            pdf.setFillColor(theme["accent"])
+            pdf.drawString(role_x, y, role_lines[0])
+            pdf.setFont("Helvetica-Bold" if theme["style"] == "classic" else "Helvetica", 7.8)
+            pdf.setFillColor(theme["muted"])
+            pdf.drawRightString(page_width - margin, y, date_label)
+            y -= 4.5 * mm
+            for extra_role_line in role_lines[1:]:
+                pdf.setFont("Helvetica-Bold", 10.2)
+                pdf.setFillColor(theme["accent"])
+                pdf.drawString(role_x, y, extra_role_line)
+                y -= 4.5 * mm
+            pdf.setFont("Helvetica-Bold", 8.7)
+            pdf.setFillColor(theme["text"])
+            pdf.drawString(role_x, y, exp.company)
+            y -= 4.5 * mm
+            for bullet in bullets:
+                bullet_indent = 4.5
+                draw_wrapped(
+                    bullet,
+                    x=role_x,
+                    width=content_width - (role_x - margin),
+                    size=theme["body_size"],
+                    leading_mm=theme["body_leading"],
+                    prefix="- ",
+                    hanging_mm=bullet_indent,
+                )
+            if exp_index < len(payload.experiences) - 1:
+                y -= theme["item_gap"] * mm
 
     if payload.certifications:
         draw_section("Certifications")
-        for cert in payload.certifications:
-            ensure_space(4)
+        for cert_index, cert in enumerate(payload.certifications):
+            ensure_space(10)
+            pdf.setFont("Helvetica-Bold", 9.2)
             pdf.setFillColor(theme["accent"])
-            pdf.setFont("Helvetica-Bold", 9.8)
             pdf.drawString(margin, y, cert.name)
+            pdf.setFont("Helvetica-Bold", 7.8)
             pdf.setFillColor(theme["muted"])
-            pdf.setFont("Helvetica", 8.5)
             pdf.drawRightString(page_width - margin, y, cert.year)
-            y -= theme["line_gap"] * mm
-            cert_details = cert.issuer
+            y -= 4.4 * mm
+            detail = cert.issuer
             if cert.credential_id:
-                cert_details = f"{cert_details} | Credential ID: {cert.credential_id}"
-            draw_multiline(cert_details, size=8.8, color=theme["muted"])
-            y -= 0.8 * mm
+                detail = f"{detail}  |  Credential ID: {cert.credential_id}"
+            draw_wrapped(detail, size=8.2, color=theme["muted"], leading_mm=4.1)
+            if cert_index < len(payload.certifications) - 1:
+                y -= 1.2 * mm
 
-    finish_page()
+    draw_footer()
     pdf.save()
     return buffer.getvalue()
 
 
 def _get_theme(style: str) -> dict:
-    normalized = style.lower().strip()
     themes = {
         "classic": {
-            "margin": 18 * mm,
-            "line_gap": 5.0,
-            "accent": HexColor("#0f172a"),
-            "accent_soft": HexColor("#93a4bb"),
-            "text": HexColor("#1e293b"),
-            "muted": HexColor("#64748b"),
-            "section_upper": True,
-            "section_rule": True,
-            "header_fill": None,
-            "header_subtext": HexColor("#e2e8f0"),
-            "page_border": False,
+            "style": "classic",
+            "margin": 19 * mm,
+            "accent": HexColor("#17233b"),
+            "text": HexColor("#2f3b4d"),
+            "muted": HexColor("#69758a"),
+            "rule": HexColor("#c8d0db"),
+            "highlight": HexColor("#17233b"),
+            "header_subtext": white,
+            "body_size": 9.1,
+            "body_leading": 4.45,
+            "section_before": 5.5,
+            "section_after": 5.0,
+            "item_gap": 2.3,
         },
         "minimal": {
-            "margin": 20 * mm,
-            "line_gap": 5.5,
-            "accent": HexColor("#111827"),
-            "accent_soft": HexColor("#d1d5db"),
-            "text": HexColor("#374151"),
-            "muted": HexColor("#6b7280"),
-            "section_upper": False,
-            "section_rule": False,
-            "header_fill": None,
-            "header_subtext": HexColor("#e2e8f0"),
-            "page_border": False,
+            "style": "minimal",
+            "margin": 21 * mm,
+            "accent": HexColor("#24282f"),
+            "text": HexColor("#3d444e"),
+            "muted": HexColor("#7a818c"),
+            "rule": HexColor("#d8dce1"),
+            "highlight": HexColor("#24282f"),
+            "header_subtext": white,
+            "body_size": 8.8,
+            "body_leading": 4.2,
+            "section_before": 4.7,
+            "section_after": 4.2,
+            "item_gap": 1.8,
         },
         "modern": {
-            "margin": 16 * mm,
-            "line_gap": 5.0,
-            "accent": HexColor("#1d4ed8"),
-            "accent_soft": HexColor("#93c5fd"),
-            "text": HexColor("#172554"),
-            "muted": HexColor("#475569"),
-            "section_upper": False,
-            "section_rule": True,
-            "header_fill": HexColor("#1e40af"),
-            "header_subtext": HexColor("#dbeafe"),
-            "page_border": True,
+            "style": "modern",
+            "margin": 18 * mm,
+            "accent": HexColor("#294b9b"),
+            "text": HexColor("#26344e"),
+            "muted": HexColor("#65728a"),
+            "rule": HexColor("#b8c8e8"),
+            "highlight": HexColor("#78d9c4"),
+            "header_subtext": HexColor("#dfe8ff"),
+            "body_size": 9.0,
+            "body_leading": 4.4,
+            "section_before": 5.3,
+            "section_after": 5.2,
+            "item_gap": 2.2,
         },
     }
-    return themes.get(normalized, themes["classic"])
-
-
-def _draw_page_chrome(pdf: canvas.Canvas, theme: dict, page_width: float, page_height: float) -> None:
-    if not theme["page_border"]:
-        return
-    pdf.setStrokeColor(HexColor("#bfdbfe"))
-    pdf.setLineWidth(0.8)
-    inset = 7 * mm
-    pdf.rect(inset, inset, page_width - (2 * inset), page_height - (2 * inset), stroke=1, fill=0)
+    return themes.get(style.lower().strip(), themes["classic"])
 
 
 def _explode_bullets(text: str) -> list[str]:
     if not text.strip():
         return []
-    raw_parts = [part.strip() for part in text.replace("\r", "").split("\n") if part.strip()]
+    raw_parts = [part.strip().lstrip("- ") for part in text.replace("\r", "").split("\n") if part.strip()]
     if len(raw_parts) > 1:
         return raw_parts
-    by_semicolon = [part.strip() for part in text.split(";") if part.strip()]
-    if len(by_semicolon) > 1:
-        return by_semicolon
-    return [text.strip()]
+    by_semicolon = [part.strip().lstrip("- ") for part in text.split(";") if part.strip()]
+    return by_semicolon if len(by_semicolon) > 1 else [text.strip().lstrip("- ")]
 
 
 def _wrap_text(text: str, max_width: float, font_name: str, font_size: float) -> list[str]:
@@ -237,10 +329,13 @@ def _wrap_text(text: str, max_width: float, font_name: str, font_size: float) ->
     return lines
 
 
+def _display_url(value: str) -> str:
+    return value.strip().removeprefix("https://").removeprefix("http://").rstrip("/")
+
+
 def _format_date(value: str, date_format: str) -> str:
     cleaned = value.strip()
-    lowered = cleaned.lower()
-    if lowered in {"present", "current", "now"}:
+    if cleaned.lower() in {"present", "current", "now"}:
         return "Present"
     if not cleaned:
         return "-"
@@ -248,7 +343,6 @@ def _format_date(value: str, date_format: str) -> str:
         parsed = datetime.strptime(cleaned, "%Y-%m-%d")
     except ValueError:
         return cleaned
-
     if date_format == "MM/YYYY":
         return parsed.strftime("%m/%Y")
     if date_format == "YYYY-MM":
