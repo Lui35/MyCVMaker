@@ -1,0 +1,19 @@
+{
+  "templates": [
+    {
+      "id": "classic",
+      "name": "Classic ATS",
+      "description": "Simple and ATS-friendly single-column layout."
+    },
+    {
+      "id": "minimal",
+      "name": "Minimal ATS",
+      "description": "Lean spacing and compact sections."
+    },
+    {
+      "id": "modern",
+      "name": "Modern ATS",
+      "description": "Balanced style while keeping ATS readability."
+    }
+  ]
+}

@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cv-maker.local/schemas/cv.json",
+  "title": "CVPayload",
+  "type": "object",
+  "required": ["version_name", "full_name", "title", "summary", "style", "date_format", "experiences"],
+  "properties": {
+    "version_name": { "type": "string", "minLength": 1 },
+    "full_name": { "type": "string", "minLength": 1 },
+    "title": { "type": "string", "minLength": 1 },
+    "summary": { "type": "string", "minLength": 1 },
+    "style": {
+      "type": "string",
+      "enum": ["classic", "minimal", "modern"]
+    },
+    "date_format": {
+      "type": "string",
+      "enum": ["MMM YYYY", "MM/YYYY", "YYYY-MM", "DD MMM YYYY"]
+    },
+    "programmer_profile": {
+      "type": "object",
+      "properties": {
+        "programming_languages": { "type": "string" },
+        "frameworks": { "type": "string" },
+        "databases": { "type": "string" },
+        "tools": { "type": "string" },
+        "github_url": { "type": "string" },
+        "portfolio_url": { "type": "string" }
+      }
+    },
+    "experiences": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["company", "role", "start_date", "end_date"],
+        "properties": {
+          "company": { "type": "string", "minLength": 1 },
+          "role": { "type": "string", "minLength": 1 },
+          "start_date": { "type": "string", "minLength": 1 },
+          "end_date": { "type": "string", "minLength": 1 },
+          "bullets": { "type": "string" }
+        }
+      }
+    },
+    "certifications": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "issuer", "year"],
+        "properties": {
+          "name": { "type": "string", "minLength": 1 },
+          "issuer": { "type": "string", "minLength": 1 },
+          "year": { "type": "string", "minLength": 1 },
+          "credential_id": { "type": "string" }
+        }
+      }
+    }
+  }
+}
