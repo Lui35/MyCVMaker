@@ -1,8 +1,14 @@
-from fastapi import FastAPI, HTTPException
+import os
+from pathlib import Path
+
+from dotenv import load_dotenv
+from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 
+from .ai_service import AIServiceError, enhance_section, import_cv_from_text, tailor_cv_to_job
 from .database import (
+    delete_cv,
     duplicate_cv,
     get_cv,
     init_db,
@@ -11,9 +17,21 @@ from .database import (
     set_default_cv,
     update_cv,
 )
-from .models import CVPayload, CVSummary, SaveCVResponse
+from .document_service import DocumentExtractionError, extract_document_text
+from .models import (
+    CVPayload,
+    CVSummary,
+    EnhanceSectionRequest,
+    EnhanceSectionResponse,
+    ImportCVResponse,
+    SaveCVResponse,
+    TailorCVRequest,
+    TailorCVResponse,
+)
 from .ordering import normalize_payload
 from .pdf_service import generate_cv_pdf
+
+load_dotenv(Path(__file__).resolve().parents[3] / ".env")
 
 app = FastAPI(title="CV Maker API")
 
@@ -37,6 +55,51 @@ def startup() -> None:
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.get("/ai/status")
+def ai_status() -> dict[str, str | bool]:
+    return {
+        "configured": bool(os.getenv("GROQ_API_KEY", "").strip()),
+        "provider": "Groq",
+        "model": os.getenv("GROQ_MODEL", "openai/gpt-oss-20b"),
+    }
+
+
+@app.post("/ai/import-cv", response_model=ImportCVResponse)
+async def import_cv(file: UploadFile = File(...)) -> ImportCVResponse:
+    filename = file.filename or "uploaded-cv"
+    try:
+        content = await file.read()
+        text, extraction_warnings = extract_document_text(filename, content)
+        cv, ai_warnings = import_cv_from_text(text, filename)
+    except DocumentExtractionError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except AIServiceError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    finally:
+        await file.close()
+    return ImportCVResponse(
+        cv=cv,
+        warnings=[*extraction_warnings, *ai_warnings],
+        source_name=filename,
+    )
+
+
+@app.post("/ai/tailor", response_model=TailorCVResponse)
+def tailor_cv(request: TailorCVRequest) -> TailorCVResponse:
+    try:
+        return tailor_cv_to_job(request.cv, request.job_description)
+    except AIServiceError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@app.post("/ai/enhance-section", response_model=EnhanceSectionResponse)
+def enhance_cv_section(request: EnhanceSectionRequest) -> EnhanceSectionResponse:
+    try:
+        return enhance_section(request.section_type, request.content, request.context)
+    except AIServiceError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
 
 
 @app.get("/templates")
@@ -93,6 +156,14 @@ def set_main_default_cv(cv_id: str) -> dict[str, str]:
     if not updated:
         raise HTTPException(status_code=404, detail="CV not found")
     return {"status": "ok"}
+
+
+@app.delete("/cvs/{cv_id}")
+def delete_existing_cv(cv_id: str) -> dict[str, str]:
+    deleted = delete_cv(cv_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="CV not found")
+    return {"status": "deleted"}
 
 
 @app.post("/generate/pdf")

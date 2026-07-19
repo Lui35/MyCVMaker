@@ -192,6 +192,22 @@ def set_default_cv(cv_id: str) -> bool:
     return True
 
 
+def delete_cv(cv_id: str) -> bool:
+    with get_conn() as conn:
+        row = conn.execute("SELECT is_default FROM cvs WHERE id = ?", (cv_id,)).fetchone()
+        if row is None:
+            return False
+        conn.execute("DELETE FROM cvs WHERE id = ?", (cv_id,))
+        if row["is_default"]:
+            replacement = conn.execute(
+                "SELECT id FROM cvs ORDER BY version_name COLLATE NOCASE ASC LIMIT 1"
+            ).fetchone()
+            if replacement is not None:
+                conn.execute("UPDATE cvs SET is_default = 1 WHERE id = ?", (replacement["id"],))
+        conn.commit()
+    return True
+
+
 def get_cv(cv_id: str) -> dict | None:
     with get_conn() as conn:
         row = conn.execute("SELECT * FROM cvs WHERE id = ?", (cv_id,)).fetchone()

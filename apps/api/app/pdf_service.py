@@ -175,7 +175,7 @@ def generate_cv_pdf(payload: CVPayload) -> bytes:
         for label, value in filled_profile_values:
             value_lines = wrapped_lines(value, content_width - label_width, "Helvetica", theme["body_size"])
             ensure_space(len(value_lines) * theme["body_leading"])
-            pdf.setFont("Helvetica-Bold", 7.6)
+            pdf.setFont("Helvetica-Bold", 8.0)
             pdf.setFillColor(theme["muted"])
             pdf.drawString(margin, y, label.upper())
             pdf.setFont("Helvetica", theme["body_size"])
@@ -197,8 +197,8 @@ def generate_cv_pdf(payload: CVPayload) -> bytes:
             if theme["style"] == "modern":
                 pdf.setFillColor(theme["highlight"])
                 pdf.roundRect(margin, y - 1 * mm, 2.4 * mm, 2.4 * mm, .7 * mm, stroke=0, fill=1)
-            role_lines = wrapped_lines(exp.role, role_width, "Helvetica-Bold", 10.2)
-            pdf.setFont("Helvetica-Bold", 10.2)
+            role_lines = wrapped_lines(exp.role, role_width, "Helvetica-Bold", 10.8)
+            pdf.setFont("Helvetica-Bold", 10.8)
             pdf.setFillColor(theme["accent"])
             pdf.drawString(role_x, y, role_lines[0])
             pdf.setFont("Helvetica-Bold" if theme["style"] == "classic" else "Helvetica", 7.8)
@@ -206,11 +206,11 @@ def generate_cv_pdf(payload: CVPayload) -> bytes:
             pdf.drawRightString(page_width - margin, y, date_label)
             y -= 4.5 * mm
             for extra_role_line in role_lines[1:]:
-                pdf.setFont("Helvetica-Bold", 10.2)
+                pdf.setFont("Helvetica-Bold", 10.8)
                 pdf.setFillColor(theme["accent"])
                 pdf.drawString(role_x, y, extra_role_line)
                 y -= 4.5 * mm
-            pdf.setFont("Helvetica-Bold", 8.7)
+            pdf.setFont("Helvetica-Bold", 9.1)
             pdf.setFillColor(theme["text"])
             pdf.drawString(role_x, y, exp.company)
             y -= 4.5 * mm
@@ -232,7 +232,7 @@ def generate_cv_pdf(payload: CVPayload) -> bytes:
         draw_section("Certifications")
         for cert_index, cert in enumerate(payload.certifications):
             ensure_space(10)
-            pdf.setFont("Helvetica-Bold", 9.2)
+            pdf.setFont("Helvetica-Bold", 9.7)
             pdf.setFillColor(theme["accent"])
             pdf.drawString(margin, y, cert.name)
             pdf.setFont("Helvetica-Bold", 7.8)
@@ -242,7 +242,7 @@ def generate_cv_pdf(payload: CVPayload) -> bytes:
             detail = cert.issuer
             if cert.credential_id:
                 detail = f"{detail}  |  Credential ID: {cert.credential_id}"
-            draw_wrapped(detail, size=8.2, color=theme["muted"], leading_mm=4.1)
+            draw_wrapped(detail, size=8.8, color=theme["muted"], leading_mm=4.5)
             if cert_index < len(payload.certifications) - 1:
                 y -= 1.2 * mm
 
@@ -262,11 +262,11 @@ def _get_theme(style: str) -> dict:
             "rule": HexColor("#c8d0db"),
             "highlight": HexColor("#17233b"),
             "header_subtext": white,
-            "body_size": 9.1,
-            "body_leading": 4.45,
-            "section_before": 5.5,
-            "section_after": 5.0,
-            "item_gap": 2.3,
+            "body_size": 10.0,
+            "body_leading": 5.1,
+            "section_before": 6.2,
+            "section_after": 5.4,
+            "item_gap": 3.0,
         },
         "minimal": {
             "style": "minimal",
@@ -277,11 +277,11 @@ def _get_theme(style: str) -> dict:
             "rule": HexColor("#d8dce1"),
             "highlight": HexColor("#24282f"),
             "header_subtext": white,
-            "body_size": 8.8,
-            "body_leading": 4.2,
-            "section_before": 4.7,
-            "section_after": 4.2,
-            "item_gap": 1.8,
+            "body_size": 9.6,
+            "body_leading": 4.8,
+            "section_before": 5.4,
+            "section_after": 4.8,
+            "item_gap": 2.5,
         },
         "modern": {
             "style": "modern",
@@ -292,11 +292,11 @@ def _get_theme(style: str) -> dict:
             "rule": HexColor("#b8c8e8"),
             "highlight": HexColor("#78d9c4"),
             "header_subtext": HexColor("#dfe8ff"),
-            "body_size": 9.0,
-            "body_leading": 4.4,
-            "section_before": 5.3,
-            "section_after": 5.2,
-            "item_gap": 2.2,
+            "body_size": 9.8,
+            "body_leading": 5.0,
+            "section_before": 6.0,
+            "section_after": 5.5,
+            "item_gap": 2.9,
         },
     }
     return themes.get(style.lower().strip(), themes["classic"])

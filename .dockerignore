@@ -1,0 +1,15 @@
+.git
+.gitignore
+.DS_Store
+.env
+.env.*
+.venv
+node_modules
+**/node_modules
+**/dist
+**/__pycache__
+**/*.pyc
+apps/api/data
+output
+tmp
+*.log

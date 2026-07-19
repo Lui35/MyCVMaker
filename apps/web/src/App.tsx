@@ -61,6 +61,38 @@ type ApiCVRecord = CVPayload & {
   is_default: boolean
 }
 
+type EditableCVRecord = CVPayload & {
+  id?: string
+  is_default?: boolean
+}
+
+type TailorResult = {
+  tailored_cv: CVPayload
+  match_score: number
+  matched_keywords: string[]
+  missing_keywords: string[]
+  changes: string[]
+  warnings: string[]
+  experience_gap_suggestions: Array<{
+    target_experience_index: number
+    requirement: string
+    suggested_bullet: string
+    confirmation_note: string
+  }>
+}
+
+type ImportResult = {
+  cv: CVPayload
+  warnings: string[]
+  source_name: string
+}
+
+type SectionSuggestion = {
+  key: string
+  enhanced_text: string
+  changes: string[]
+}
+
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000'
 const PRESENT_VALUES = new Set(['present', 'current', 'now'])
 const CV_STYLES = [
@@ -123,6 +155,7 @@ const formatDateValue = (value: string, format: DateFormat): string => {
 
 function App() {
   const [isDarkMode, setIsDarkMode] = useState(() => localStorage.getItem('cv-maker-theme') === 'dark')
+  const [activeView, setActiveView] = useState<'editor' | 'manage'>('editor')
   const [statusMessage, setStatusMessage] = useState('')
   const [versions, setVersions] = useState<CVVersionSummary[]>([])
   const [currentCvId, setCurrentCvId] = useState<string | null>(null)
@@ -141,6 +174,12 @@ function App() {
   const [portfolioUrl, setPortfolioUrl] = useState('')
   const [experiences, setExperiences] = useState<Experience[]>([emptyExperience()])
   const [certifications, setCertifications] = useState<Certification[]>([emptyCertification()])
+  const [importFile, setImportFile] = useState<File | null>(null)
+  const [jobDescription, setJobDescription] = useState('')
+  const [aiBusy, setAiBusy] = useState<string | null>(null)
+  const [tailorResult, setTailorResult] = useState<TailorResult | null>(null)
+  const [confirmedGapSuggestions, setConfirmedGapSuggestions] = useState<number[]>([])
+  const [sectionSuggestion, setSectionSuggestion] = useState<SectionSuggestion | null>(null)
 
   const toPayload = (): CVPayload => ({
     version_name: versionName,
@@ -165,16 +204,18 @@ function App() {
         year: cert.year,
         credential_id: cert.credentialId,
       })),
-    experiences: experiences.map((exp) => ({
-      company: exp.company,
-      role: exp.role,
-      start_date: exp.startDate,
-      end_date: exp.currentlyWorking ? 'Present' : exp.endDate,
-      bullets: exp.bullets,
-    })),
+    experiences: experiences
+      .filter((exp) => exp.company.trim() && exp.role.trim() && exp.startDate && (exp.currentlyWorking || exp.endDate))
+      .map((exp) => ({
+        company: exp.company,
+        role: exp.role,
+        start_date: exp.startDate,
+        end_date: exp.currentlyWorking ? 'Present' : exp.endDate,
+        bullets: exp.bullets,
+      })),
   })
 
-  const applyCvData = (cv: ApiCVRecord) => {
+  const applyCvData = (cv: EditableCVRecord) => {
     setCurrentCvId(cv.id ?? null)
     setVersionName(cv.version_name ?? 'My CV')
     setFullName(cv.full_name ?? '')
@@ -354,6 +395,87 @@ function App() {
     setStatusMessage('Default CV updated.')
   }
 
+  const deleteCurrentCv = async () => {
+    if (!currentCvId) {
+      setStatusMessage('Select a saved CV version before deleting.')
+      return
+    }
+    const selectedVersion = versions.find((version) => version.id === currentCvId)
+    const displayName = selectedVersion?.version_name || versionName || 'this CV'
+    if (!window.confirm(`Delete "${displayName}" permanently? This cannot be undone.`)) return
+
+    const response = await fetch(`${API_BASE_URL}/cvs/${currentCvId}`, { method: 'DELETE' })
+    if (!response.ok) {
+      setStatusMessage(await getApiError(response, 'Could not delete this CV version.'))
+      return
+    }
+
+    const remaining = await loadVersions()
+    if (remaining.length) {
+      const nextVersion = remaining.find((version) => version.is_default) ?? remaining[0]
+      await loadCv(nextVersion.id)
+    } else {
+      clearFormForNew()
+    }
+    setStatusMessage(`Deleted "${displayName}".`)
+  }
+
+  const openManagedCv = async (cvId: string) => {
+    await loadCv(cvId)
+    setActiveView('editor')
+    setStatusMessage('CV opened in the editor.')
+  }
+
+  const duplicateManagedCv = async (cvId: string, displayName: string) => {
+    const response = await fetch(`${API_BASE_URL}/cvs/${cvId}/duplicate`, { method: 'POST' })
+    if (!response.ok) {
+      setStatusMessage(await getApiError(response, 'Could not duplicate this CV version.'))
+      return
+    }
+    await loadVersions()
+    setStatusMessage(`Duplicated "${displayName}".`)
+  }
+
+  const downloadManagedCv = async (cvId: string, displayName: string) => {
+    const response = await fetch(`${API_BASE_URL}/cvs/${cvId}`)
+    if (!response.ok) {
+      setStatusMessage(await getApiError(response, 'Could not load this CV for download.'))
+      return
+    }
+    const cv = (await response.json()) as ApiCVRecord
+    await downloadPdfFromPayload(cv)
+    setStatusMessage(`Downloaded "${displayName}" as a PDF.`)
+  }
+
+  const setManagedCvAsDefault = async (cvId: string, displayName: string) => {
+    const response = await fetch(`${API_BASE_URL}/cvs/${cvId}/set-default`, { method: 'POST' })
+    if (!response.ok) {
+      setStatusMessage(await getApiError(response, 'Could not set this CV as default.'))
+      return
+    }
+    await loadVersions()
+    setStatusMessage(`Set "${displayName}" as the default CV.`)
+  }
+
+  const deleteManagedCv = async (cvId: string, displayName: string) => {
+    if (!window.confirm(`Delete "${displayName}" permanently? This cannot be undone.`)) return
+    const response = await fetch(`${API_BASE_URL}/cvs/${cvId}`, { method: 'DELETE' })
+    if (!response.ok) {
+      setStatusMessage(await getApiError(response, 'Could not delete this CV version.'))
+      return
+    }
+    const remaining = await loadVersions()
+    if (cvId === currentCvId) {
+      if (remaining.length) {
+        const nextVersion = remaining.find((version) => version.is_default) ?? remaining[0]
+        await loadCv(nextVersion.id)
+      } else {
+        clearFormForNew()
+      }
+    }
+    setStatusMessage(`Deleted "${displayName}".`)
+  }
+
   const downloadPdfFromPayload = async (payload: CVPayload) => {
     const response = await fetch(`${API_BASE_URL}/generate/pdf`, {
       method: 'POST',
@@ -376,6 +498,155 @@ function App() {
 
   const generatePdf = async () => {
     await downloadPdfFromPayload(toPayload())
+  }
+
+  const getApiError = async (response: Response, fallback: string) => {
+    try {
+      const body = (await response.json()) as { detail?: string }
+      return body.detail || fallback
+    } catch {
+      return fallback
+    }
+  }
+
+  const importCvWithAi = async () => {
+    if (!importFile) {
+      setStatusMessage('Choose a PDF, DOCX, or TXT CV first.')
+      return
+    }
+    setAiBusy('import')
+    setTailorResult(null)
+    try {
+      const formData = new FormData()
+      formData.append('file', importFile)
+      const response = await fetch(`${API_BASE_URL}/ai/import-cv`, { method: 'POST', body: formData })
+      if (!response.ok) throw new Error(await getApiError(response, 'Could not import this CV.'))
+      const result = (await response.json()) as ImportResult
+      applyCvData(result.cv)
+      setStatusMessage(
+        result.warnings.length
+          ? `CV imported. Review these items: ${result.warnings.join(' ')}`
+          : 'CV imported into a new unsaved version. Review it before saving.',
+      )
+    } catch (error) {
+      setStatusMessage(error instanceof Error ? error.message : 'Could not import this CV.')
+    } finally {
+      setAiBusy(null)
+    }
+  }
+
+  const tailorCvWithAi = async () => {
+    if (jobDescription.trim().length < 80) {
+      setStatusMessage('Paste a fuller job description (at least 80 characters).')
+      return
+    }
+    if (!fullName.trim() || !title.trim() || !summary.trim()) {
+      setStatusMessage('Add your name, title, and summary before tailoring this CV.')
+      return
+    }
+    setAiBusy('tailor')
+    setConfirmedGapSuggestions([])
+    try {
+      const response = await fetch(`${API_BASE_URL}/ai/tailor`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cv: toPayload(), job_description: jobDescription }),
+      })
+      if (!response.ok) throw new Error(await getApiError(response, 'Could not tailor this CV.'))
+      const result = (await response.json()) as TailorResult
+      setTailorResult(result)
+      setStatusMessage('AI suggestions are ready for review. Your current CV has not been changed.')
+    } catch (error) {
+      setStatusMessage(error instanceof Error ? error.message : 'Could not tailor this CV.')
+    } finally {
+      setAiBusy(null)
+    }
+  }
+
+  const applyTailoredVersion = () => {
+    if (!tailorResult) return
+    const tailoredCv: CVPayload = {
+      ...tailorResult.tailored_cv,
+      experiences: tailorResult.tailored_cv.experiences.map((experience) => ({ ...experience })),
+    }
+    confirmedGapSuggestions.forEach((suggestionIndex) => {
+      const suggestion = tailorResult.experience_gap_suggestions[suggestionIndex]
+      const target = suggestion ? tailoredCv.experiences[suggestion.target_experience_index] : undefined
+      if (!target) return
+      target.bullets = [target.bullets.trim(), suggestion.suggested_bullet.trim()].filter(Boolean).join('\n')
+    })
+    applyCvData(tailoredCv)
+    setTailorResult(null)
+    setConfirmedGapSuggestions([])
+    setStatusMessage(
+      confirmedGapSuggestions.length
+        ? `Tailored version created with ${confirmedGapSuggestions.length} confirmed experience addition${confirmedGapSuggestions.length === 1 ? '' : 's'}.`
+        : 'Tailored suggestions applied as a new unsaved CV version.',
+    )
+  }
+
+  const toggleGapSuggestion = (index: number, checked: boolean) => {
+    setConfirmedGapSuggestions((current) => (
+      checked ? [...new Set([...current, index])] : current.filter((item) => item !== index)
+    ))
+  }
+
+  const enhanceWriting = async (
+    key: string,
+    sectionType: 'summary' | 'experience',
+    content: string,
+    context: string,
+  ) => {
+    if (content.trim().length < 20) {
+      setStatusMessage('Add at least 20 characters before enhancing this section.')
+      return
+    }
+    const busyKey = `enhance-${key}`
+    setAiBusy(busyKey)
+    setSectionSuggestion(null)
+    try {
+      const response = await fetch(`${API_BASE_URL}/ai/enhance-section`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ section_type: sectionType, content, context }),
+      })
+      if (!response.ok) throw new Error(await getApiError(response, 'Could not enhance this section.'))
+      const result = (await response.json()) as Omit<SectionSuggestion, 'key'>
+      setSectionSuggestion({ key, ...result })
+      setStatusMessage('Enhanced writing is ready for review. Nothing has been replaced yet.')
+    } catch (error) {
+      setStatusMessage(error instanceof Error ? error.message : 'Could not enhance this section.')
+    } finally {
+      setAiBusy(null)
+    }
+  }
+
+  const applySectionSuggestion = (key: string) => {
+    if (!sectionSuggestion || sectionSuggestion.key !== key) return
+    if (key === 'summary') {
+      setSummary(sectionSuggestion.enhanced_text.slice(0, 500))
+    } else {
+      const index = Number(key.replace('experience-', ''))
+      if (Number.isInteger(index) && experiences[index]) {
+        updateExperience(index, 'bullets', sectionSuggestion.enhanced_text)
+      }
+    }
+    setSectionSuggestion(null)
+    setStatusMessage('Enhanced writing applied. Review the wording before saving or exporting.')
+  }
+
+  const renderEnhancementReview = (key: string) => {
+    if (!sectionSuggestion || sectionSuggestion.key !== key) return null
+    return (
+      <aside className="enhance-review" aria-live="polite">
+        <div><span className="eyebrow">AI SUGGESTION</span><p>{sectionSuggestion.enhanced_text}</p></div>
+        {sectionSuggestion.changes.length ? <ul>{sectionSuggestion.changes.map((change) => <li key={change}>{change}</li>)}</ul> : null}
+        <div className="enhance-actions">
+          <button type="button" className="ghost" onClick={() => setSectionSuggestion(null)}>Discard</button>
+          <button type="button" onClick={() => applySectionSuggestion(key)}>Apply suggestion</button>
+        </div>
+      </aside>
+    )
   }
 
   const fillDummyData = () => {
@@ -429,11 +700,51 @@ function App() {
           <button type="button" className="ghost" aria-pressed={isDarkMode} onClick={() => setIsDarkMode((v) => !v)}>
             {isDarkMode ? 'Light Mode' : 'Dark Mode'}
           </button>
-          <button type="button" className="ghost" onClick={fillDummyData}>Fill Dummy Data</button>
-          <button type="button" className="primary-action" onClick={generatePdf}>Export PDF <span aria-hidden="true">&#8599;</span></button>
+          {activeView === 'editor' ? (
+            <>
+              <button type="button" className="ghost" onClick={fillDummyData}>Fill Dummy Data</button>
+              <button type="button" className="primary-action" onClick={generatePdf}>Export PDF <span aria-hidden="true">&#8599;</span></button>
+            </>
+          ) : null}
         </div>
       </header>
 
+      <nav className="workspace-tabs" role="tablist" aria-label="CV workspace">
+        <button type="button" role="tab" aria-selected={activeView === 'editor'} className={activeView === 'editor' ? 'active' : ''} onClick={() => setActiveView('editor')}>Editor</button>
+        <button type="button" role="tab" aria-selected={activeView === 'manage'} className={activeView === 'manage' ? 'active' : ''} onClick={() => setActiveView('manage')}>Manage CVs <span>{versions.length}</span></button>
+      </nav>
+
+      {activeView === 'manage' ? (
+        <section className="cv-manager card" role="tabpanel" aria-labelledby="manage-cvs-title">
+          <div className="manager-heading">
+            <div><span className="eyebrow">SAVED VERSIONS</span><h2 id="manage-cvs-title">Manage CVs</h2><p>Open, duplicate, prioritize, or remove your saved CV versions.</p></div>
+            <button type="button" onClick={() => { clearFormForNew(); setActiveView('editor') }}>Create new CV</button>
+          </div>
+          {versions.length ? (
+            <div className="cv-version-list">
+              {versions.map((version) => (
+                <article className={`cv-version-card ${version.id === currentCvId ? 'current' : ''}`} key={version.id}>
+                  <div className="version-icon" aria-hidden="true">CV</div>
+                  <div className="version-details">
+                    <div><h3>{version.version_name}</h3>{version.is_default ? <span className="default-badge">Default</span> : null}{version.id === currentCvId ? <span className="current-badge">Open</span> : null}</div>
+                    <p>{version.is_default ? 'Loaded automatically when the app starts.' : 'Saved CV version ready to edit or export.'}</p>
+                  </div>
+                  <div className="version-actions">
+                    <button type="button" onClick={() => void openManagedCv(version.id)}>Open</button>
+                    <button type="button" className="download-version" onClick={() => void downloadManagedCv(version.id, version.version_name)}>Download PDF</button>
+                    <button type="button" className="ghost" onClick={() => void duplicateManagedCv(version.id, version.version_name)}>Duplicate</button>
+                    <button type="button" className="ghost" onClick={() => void setManagedCvAsDefault(version.id, version.version_name)} disabled={version.is_default}>Set default</button>
+                    <button type="button" className="manager-delete" onClick={() => void deleteManagedCv(version.id, version.version_name)}>Delete</button>
+                  </div>
+                </article>
+              ))}
+            </div>
+          ) : (
+            <div className="manager-empty"><strong>No saved CVs yet</strong><p>Create and save your first CV to manage it here.</p></div>
+          )}
+        </section>
+      ) : (
+        <>
       <section className="version-bar card" aria-label="CV version controls">
         <label>
           CV Version
@@ -456,6 +767,7 @@ function App() {
           <button type="button" onClick={clearFormForNew}>New Version</button>
           <button type="button" onClick={duplicateCurrent}>Duplicate</button>
           <button type="button" onClick={setAsDefault}>Set as Default</button>
+          <button type="button" className="delete-version" onClick={deleteCurrentCv} disabled={!currentCvId}>Delete</button>
         </div>
       </section>
 
@@ -466,6 +778,95 @@ function App() {
         </div>
         <div className="progress-track"><span style={{ width: `${completion}%` }} /></div>
         <p>{completion < 85 ? 'Add measurable experience highlights and profile links to strengthen your CV.' : 'Your core sections are in great shape and ready for a final review.'}</p>
+      </section>
+
+      <section className="ai-studio card" aria-labelledby="ai-studio-title">
+        <div className="ai-studio-heading">
+          <div className="ai-title-group"><span className="ai-mark" aria-hidden="true">AI</span><div><span className="eyebrow">GROQ-POWERED WORKSPACE</span><h2 id="ai-studio-title">AI Career Studio</h2></div></div>
+          <p>AI suggestions are drafts. Review every fact before saving or exporting.</p>
+        </div>
+        <div className="ai-grid">
+          <article className="ai-tool">
+            <span className="tool-number">01</span>
+            <div><h3>Import an existing CV</h3><p>Turn a PDF, DOCX, or text CV into editable fields.</p></div>
+            <label className="file-picker">
+              <span>{importFile ? importFile.name : 'Choose CV file'}</span>
+              <small>PDF, DOCX, or TXT · up to 8 MB</small>
+              <input
+                type="file"
+                accept=".pdf,.docx,.txt,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain"
+                onChange={(event) => setImportFile(event.target.files?.[0] ?? null)}
+              />
+            </label>
+            <button type="button" onClick={importCvWithAi} disabled={aiBusy !== null}>
+              {aiBusy === 'import' ? 'Importing…' : 'Import with AI'}
+            </button>
+          </article>
+
+          <article className="ai-tool tailor-tool">
+            <span className="tool-number">02</span>
+            <div><h3>Tailor to a job</h3><p>Improve relevance without inventing experience or skills.</p></div>
+            <label>
+              Job description
+              <textarea
+                rows={5}
+                value={jobDescription}
+                onChange={(event) => setJobDescription(event.target.value.slice(0, 20000))}
+                placeholder="Paste the complete job description here…"
+              />
+              <small className="field-hint">{jobDescription.length.toLocaleString()} / 20,000 characters</small>
+            </label>
+            <button type="button" onClick={tailorCvWithAi} disabled={aiBusy !== null}>
+              {aiBusy === 'tailor' ? 'Analyzing…' : 'Analyze & tailor'}
+            </button>
+          </article>
+        </div>
+
+        {tailorResult ? (
+          <section className="ai-results" aria-label="AI tailoring results">
+            <div className="match-score"><strong>{tailorResult.match_score}%</strong><span>Evidence-based match</span></div>
+            <div className="result-column"><h3>Matched keywords</h3><div className="keyword-list positive">{tailorResult.matched_keywords.length ? tailorResult.matched_keywords.map((keyword) => <span key={keyword}>{keyword}</span>) : <small>None identified</small>}</div></div>
+            <div className="result-column"><h3>Missing evidence</h3><div className="keyword-list warning">{tailorResult.missing_keywords.length ? tailorResult.missing_keywords.map((keyword) => <span key={keyword}>{keyword}</span>) : <small>No major gaps identified</small>}</div></div>
+            <div className="result-notes">
+              <div><h3>Proposed changes</h3><ul>{tailorResult.changes.map((change) => <li key={change}>{change}</li>)}</ul></div>
+              {tailorResult.warnings.length ? <div><h3>Keep in mind</h3><ul>{tailorResult.warnings.map((warning) => <li key={warning}>{warning}</li>)}</ul></div> : null}
+            </div>
+            {tailorResult.experience_gap_suggestions.length ? (
+              <div className="gap-suggestions">
+                <div className="gap-heading">
+                  <div><h3>Experience you may want to add</h3><p>These requirements were not found in your CV. Confirm only the statements you have genuinely done.</p></div>
+                  <span>{confirmedGapSuggestions.length} confirmed</span>
+                </div>
+                <div className="gap-list">
+                  {tailorResult.experience_gap_suggestions.map((suggestion, index) => {
+                    const target = tailorResult.tailored_cv.experiences[suggestion.target_experience_index]
+                    return (
+                      <label className={`gap-option ${confirmedGapSuggestions.includes(index) ? 'confirmed' : ''}`} key={`${suggestion.requirement}-${index}`}>
+                        <input
+                          type="checkbox"
+                          checked={confirmedGapSuggestions.includes(index)}
+                          onChange={(event) => toggleGapSuggestion(index, event.target.checked)}
+                        />
+                        <span>
+                          <strong>{suggestion.requirement}</strong>
+                          <small>Add to {target ? `${target.role} at ${target.company}` : 'the selected experience'}</small>
+                          <em>{suggestion.suggested_bullet}</em>
+                          <i>Verify: {suggestion.confirmation_note}</i>
+                        </span>
+                      </label>
+                    )
+                  })}
+                </div>
+              </div>
+            ) : null}
+            <div className="result-actions">
+              <button type="button" className="ghost" onClick={() => { setTailorResult(null); setConfirmedGapSuggestions([]) }}>Discard</button>
+              <button type="button" onClick={applyTailoredVersion}>
+                Apply as new version{confirmedGapSuggestions.length ? ` + ${confirmedGapSuggestions.length} confirmed` : ''}
+              </button>
+            </div>
+          </section>
+        ) : null}
       </section>
 
       <section className="workspace">
@@ -509,11 +910,24 @@ function App() {
             </label>
           </div>
 
-          <label>
-            <span className="label-row"><span>Professional Summary</span><small>{summary.length}/500</small></span>
+          <div className="writing-field">
+            <div className="writing-heading">
+              <span>Professional Summary <small>{summary.length}/500</small></span>
+              <button
+                type="button"
+                className="enhance-button"
+                disabled={aiBusy !== null}
+                onClick={() => void enhanceWriting('summary', 'summary', summary, `Target title: ${title}. Existing skills: ${[programmingLanguages, frameworks, databases, tools].filter(Boolean).join(', ')}`)}
+              >
+                {aiBusy === 'enhance-summary' ? 'Enhancing…' : '✦ Enhance'}
+              </button>
+            </div>
+            <label>
             <textarea value={summary} onChange={(e) => setSummary(e.target.value.slice(0, 500))} rows={4} placeholder="Summarize your impact, specialties, and years of experience…" required />
             <small className="field-hint">Aim for 80–300 characters and lead with outcomes.</small>
-          </label>
+            </label>
+            {renderEnhancementReview('summary')}
+          </div>
 
           <label>
             Date Format (Preview + PDF)
@@ -560,6 +974,22 @@ function App() {
           <h3><span className="step">03</span> Experience</h3>
           {experiences.map((exp, index) => (
             <section className="experience" key={`exp-${index}`}>
+              <div className="writing-heading block-heading">
+                <strong>Experience {index + 1}</strong>
+                <button
+                  type="button"
+                  className="enhance-button"
+                  disabled={aiBusy !== null}
+                  onClick={() => void enhanceWriting(
+                    `experience-${index}`,
+                    'experience',
+                    exp.bullets,
+                    `Company: ${exp.company}. Role: ${exp.role}. Target job description: ${jobDescription.slice(0, 4000)}`,
+                  )}
+                >
+                  {aiBusy === `enhance-experience-${index}` ? 'Enhancing…' : '✦ Enhance writing'}
+                </button>
+              </div>
               <div className="grid">
                 <label>
                   Company
@@ -588,6 +1018,7 @@ function App() {
                 Highlights
                 <textarea rows={3} value={exp.bullets} onChange={(e) => updateExperience(index, 'bullets', e.target.value)} />
               </label>
+              {renderEnhancementReview(`experience-${index}`)}
               <button type="button" className="danger" onClick={() => removeExperience(index)}>Remove Experience</button>
             </section>
           ))}
@@ -689,6 +1120,9 @@ function App() {
           </div>
         </aside>
       </section>
+
+        </>
+      )}
 
       {statusMessage ? <p className="status" role="status" aria-live="polite">{statusMessage}</p> : null}
     </main>

@@ -47,3 +47,54 @@ class CVSummary(BaseModel):
     id: str
     version_name: str
     is_default: bool
+
+
+class AICVPayload(BaseModel):
+    version_name: str
+    full_name: str
+    title: str
+    summary: str
+    style: Literal["classic", "minimal", "modern"]
+    date_format: Literal["MMM YYYY", "MM/YYYY", "YYYY-MM", "DD MMM YYYY"]
+    experiences: list[Experience]
+    programmer_profile: ProgrammerProfile
+    certifications: list[Certification]
+
+
+class ImportCVResponse(BaseModel):
+    cv: AICVPayload
+    warnings: list[str]
+    source_name: str
+
+
+class TailorCVRequest(BaseModel):
+    cv: CVPayload
+    job_description: str = Field(min_length=80, max_length=20_000)
+
+
+class ExperienceGapSuggestion(BaseModel):
+    target_experience_index: int = Field(ge=0)
+    requirement: str
+    suggested_bullet: str
+    confirmation_note: str
+
+
+class TailorCVResponse(BaseModel):
+    tailored_cv: AICVPayload
+    match_score: int = Field(ge=0, le=100)
+    matched_keywords: list[str]
+    missing_keywords: list[str]
+    changes: list[str]
+    warnings: list[str]
+    experience_gap_suggestions: list[ExperienceGapSuggestion]
+
+
+class EnhanceSectionRequest(BaseModel):
+    section_type: Literal["summary", "experience"]
+    content: str = Field(min_length=20, max_length=6_000)
+    context: str = Field(default="", max_length=6_000)
+
+
+class EnhanceSectionResponse(BaseModel):
+    enhanced_text: str
+    changes: list[str]
