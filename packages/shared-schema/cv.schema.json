@@ -28,6 +28,15 @@
         "portfolio_url": { "type": "string" }
       }
     },
+    "contact_profile": {
+      "type": "object",
+      "properties": {
+        "email": { "type": "string" },
+        "phone": { "type": "string" },
+        "location": { "type": "string" },
+        "linkedin_url": { "type": "string" }
+      }
+    },
     "experiences": {
       "type": "array",
       "items": {
@@ -52,6 +61,21 @@
           "issuer": { "type": "string", "minLength": 1 },
           "year": { "type": "string", "minLength": 1 },
           "credential_id": { "type": "string" }
+        }
+      }
+    },
+    "education": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["institution", "degree"],
+        "properties": {
+          "institution": { "type": "string", "minLength": 1 },
+          "degree": { "type": "string", "minLength": 1 },
+          "field_of_study": { "type": "string" },
+          "start_date": { "type": "string" },
+          "end_date": { "type": "string" },
+          "details": { "type": "string" }
         }
       }
     }

@@ -4,14 +4,14 @@ Starter monorepo for an ATS-friendly CV builder:
 - **Web:** React + TypeScript + Vite
 - **API:** FastAPI + SQLite
 - **Output:** PDF generation (v1)
-- **Features:** split editor/preview layout, CV version manager (multiple versions, duplicate, default), dark mode, dummy-data generation, programmer-focused form fields, certifications, and auto-sorted experience (newest to oldest)
+- **Features:** dedicated profile and education tab, split editor/preview layout, CV version manager (multiple versions, duplicate, default), dark mode, dummy-data generation, programmer-focused form fields, certifications, and auto-sorted experience (newest to oldest)
 - **AI:** import text-based PDF/DOCX/TXT CVs into editable fields and create evidence-bound job-tailored versions with Groq
 
 ## Project structure
 
 ```text
 apps/
-  web/                  # form + style picker + PDF trigger
+  web/                  # componentized editor, preview, version manager, AI studio, and export flow
   api/                  # FastAPI + SQLite + PDF generation
 packages/
   shared-schema/        # CV JSON schema
@@ -73,5 +73,13 @@ AI endpoints:
 - `POST /ai/tailor` rewrites the summary and every experience for a job, then returns reviewable, confirmation-gated suggestions for missing experience.
 - `POST /ai/enhance-section` rewrites a summary or experience block using only the facts supplied, then returns a reviewable suggestion.
 - `DELETE /cvs/{cv_id}` permanently deletes a saved CV and assigns a new default when needed.
+
+PDF export includes a live first-page preview for Classic, Minimal, and Modern templates plus A4/Letter page sizes, compact/standard/wide margins, and compact/standard/comfortable density. Generated files embed Unicode fonts, include clickable profile links, and are rejected if an automated extraction check cannot recover important CV text.
+
+Run the API persistence and PDF service tests from a Python environment with the API requirements installed:
+
+```bash
+python -m unittest discover -s apps/api/tests -v
+```
 
 The importer currently supports text-based documents. Image-only or scanned PDFs return a clear OCR-required message instead of guessing. Tailoring preserves factual identity, employment, date, skills, link, and certification fields in server code; AI is limited to summary and bullet wording.

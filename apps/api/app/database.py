@@ -32,7 +32,9 @@ def init_db() -> None:
                 date_format TEXT NOT NULL DEFAULT 'MMM YYYY',
                 experiences_json TEXT NOT NULL,
                 programmer_profile_json TEXT NOT NULL DEFAULT '{}',
-                certifications_json TEXT NOT NULL DEFAULT '[]'
+                certifications_json TEXT NOT NULL DEFAULT '[]',
+                contact_profile_json TEXT NOT NULL DEFAULT '{}',
+                education_json TEXT NOT NULL DEFAULT '[]'
             )
             """
         )
@@ -66,6 +68,8 @@ def init_db() -> None:
             "certifications_json",
             "TEXT NOT NULL DEFAULT '[]'",
         )
+        _ensure_column(conn, "cvs", "contact_profile_json", "TEXT NOT NULL DEFAULT '{}'")
+        _ensure_column(conn, "cvs", "education_json", "TEXT NOT NULL DEFAULT '[]'")
         conn.commit()
 
 
@@ -75,15 +79,17 @@ def save_cv(payload: CVPayload) -> str:
     experiences_json = json.dumps([exp.model_dump() for exp in payload.experiences])
     programmer_profile_json = json.dumps(payload.programmer_profile.model_dump())
     certifications_json = json.dumps([cert.model_dump() for cert in payload.certifications])
+    contact_profile_json = json.dumps(payload.contact_profile.model_dump())
+    education_json = json.dumps([item.model_dump() for item in payload.education])
     with get_conn() as conn:
         version_count = conn.execute("SELECT COUNT(1) AS count FROM cvs").fetchone()["count"]
         is_default = 1 if version_count == 0 else 0
         conn.execute(
             """
             INSERT INTO cvs (
-                id, version_name, is_default, full_name, title, summary, style, date_format, experiences_json, programmer_profile_json, certifications_json
+                id, version_name, is_default, full_name, title, summary, style, date_format, experiences_json, programmer_profile_json, certifications_json, contact_profile_json, education_json
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 cv_id,
@@ -97,6 +103,8 @@ def save_cv(payload: CVPayload) -> str:
                 experiences_json,
                 programmer_profile_json,
                 certifications_json,
+                contact_profile_json,
+                education_json,
             ),
         )
         conn.commit()
@@ -107,12 +115,14 @@ def update_cv(cv_id: str, payload: CVPayload) -> bool:
     experiences_json = json.dumps([exp.model_dump() for exp in payload.experiences])
     programmer_profile_json = json.dumps(payload.programmer_profile.model_dump())
     certifications_json = json.dumps([cert.model_dump() for cert in payload.certifications])
+    contact_profile_json = json.dumps(payload.contact_profile.model_dump())
+    education_json = json.dumps([item.model_dump() for item in payload.education])
     with get_conn() as conn:
         result = conn.execute(
             """
             UPDATE cvs
             SET version_name = ?, full_name = ?, title = ?, summary = ?, style = ?, date_format = ?,
-                experiences_json = ?, programmer_profile_json = ?, certifications_json = ?
+                experiences_json = ?, programmer_profile_json = ?, certifications_json = ?, contact_profile_json = ?, education_json = ?
             WHERE id = ?
             """,
             (
@@ -125,6 +135,8 @@ def update_cv(cv_id: str, payload: CVPayload) -> bool:
                 experiences_json,
                 programmer_profile_json,
                 certifications_json,
+                contact_profile_json,
+                education_json,
                 cv_id,
             ),
         )
@@ -160,9 +172,9 @@ def duplicate_cv(cv_id: str) -> str | None:
         conn.execute(
             """
             INSERT INTO cvs (
-                id, version_name, is_default, full_name, title, summary, style, date_format, experiences_json, programmer_profile_json, certifications_json
+                id, version_name, is_default, full_name, title, summary, style, date_format, experiences_json, programmer_profile_json, certifications_json, contact_profile_json, education_json
             )
-            VALUES (?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 new_id,
@@ -175,6 +187,8 @@ def duplicate_cv(cv_id: str) -> str | None:
                 row["experiences_json"],
                 row["programmer_profile_json"],
                 row["certifications_json"],
+                row["contact_profile_json"],
+                row["education_json"],
             ),
         )
         conn.commit()
@@ -225,6 +239,8 @@ def get_cv(cv_id: str) -> dict | None:
         "experiences": json.loads(row["experiences_json"]),
         "programmer_profile": json.loads(row["programmer_profile_json"] or "{}"),
         "certifications": json.loads(row["certifications_json"] or "[]"),
+        "contact_profile": json.loads(row["contact_profile_json"] or "{}"),
+        "education": json.loads(row["education_json"] or "[]"),
     }
 
 

@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cv-maker.local/schemas/pdf-export.json",
+  "title": "PDFExportRequest",
+  "type": "object",
+  "required": ["cv", "options"],
+  "properties": {
+    "cv": { "$ref": "./cv.schema.json" },
+    "options": {
+      "type": "object",
+      "required": ["page_size", "margin", "density"],
+      "properties": {
+        "page_size": { "type": "string", "enum": ["A4", "LETTER"] },
+        "margin": { "type": "string", "enum": ["compact", "standard", "wide"] },
+        "density": { "type": "string", "enum": ["compact", "standard", "comfortable"] }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

@@ -24,12 +24,13 @@ from .models import (
     EnhanceSectionRequest,
     EnhanceSectionResponse,
     ImportCVResponse,
+    PDFExportRequest,
     SaveCVResponse,
     TailorCVRequest,
     TailorCVResponse,
 )
 from .ordering import normalize_payload
-from .pdf_service import generate_cv_pdf
+from .pdf_service import PDFGenerationError, generate_cv_pdf
 
 load_dotenv(Path(__file__).resolve().parents[3] / ".env")
 
@@ -167,9 +168,12 @@ def delete_existing_cv(cv_id: str) -> dict[str, str]:
 
 
 @app.post("/generate/pdf")
-def generate_pdf(payload: CVPayload) -> StreamingResponse:
-    normalized = normalize_payload(payload)
-    pdf_bytes = generate_cv_pdf(normalized)
+def generate_pdf(request: PDFExportRequest) -> StreamingResponse:
+    normalized = normalize_payload(request.cv)
+    try:
+        pdf_bytes = generate_cv_pdf(normalized, request.options)
+    except PDFGenerationError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
     return StreamingResponse(
         iter([pdf_bytes]),
         media_type="application/pdf",

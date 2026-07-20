@@ -53,6 +53,8 @@ Rules:
 - Include only experience entries that have a company, role, start date, and end date. Use Present for a current role.
 - Normalize parseable dates to YYYY-MM-DD. If only month/year is known, use the first day of the month. Preserve unparseable dates as written.
 - Put separate achievement bullets on separate lines in the bullets string.
+- Extract email, phone, location, and LinkedIn into contact_profile when present.
+- Extract education entries only when both institution and degree are present.
 - Choose classic style and MMM YYYY date format.
 - Set version_name to Imported CV.
 - Professional summary should be copied or lightly cleaned, not newly invented.
@@ -124,6 +126,8 @@ Rules:
         experiences=tailored_experiences,
         programmer_profile=cv.programmer_profile.model_copy(deep=True),
         certifications=[certification.model_copy(deep=True) for certification in cv.certifications],
+        contact_profile=cv.contact_profile.model_copy(deep=True),
+        education=[item.model_copy(deep=True) for item in cv.education],
     )
     gap_prompt = """
 Find important job requirements that are not evidenced by the CV and return up to 6 review prompts.

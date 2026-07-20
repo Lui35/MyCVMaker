@@ -27,6 +27,22 @@ class Certification(BaseModel):
     credential_id: str = ""
 
 
+class ContactProfile(BaseModel):
+    email: str = ""
+    phone: str = ""
+    location: str = ""
+    linkedin_url: str = ""
+
+
+class Education(BaseModel):
+    institution: str = Field(min_length=1)
+    degree: str = Field(min_length=1)
+    field_of_study: str = ""
+    start_date: str = ""
+    end_date: str = ""
+    details: str = ""
+
+
 class CVPayload(BaseModel):
     version_name: str = Field(min_length=1, default="My CV")
     full_name: str = Field(min_length=1)
@@ -37,6 +53,19 @@ class CVPayload(BaseModel):
     experiences: list[Experience] = Field(default_factory=list)
     programmer_profile: ProgrammerProfile = Field(default_factory=ProgrammerProfile)
     certifications: list[Certification] = Field(default_factory=list)
+    contact_profile: ContactProfile = Field(default_factory=ContactProfile)
+    education: list[Education] = Field(default_factory=list)
+
+
+class PDFExportOptions(BaseModel):
+    page_size: Literal["A4", "LETTER"] = "A4"
+    margin: Literal["compact", "standard", "wide"] = "standard"
+    density: Literal["compact", "standard", "comfortable"] = "standard"
+
+
+class PDFExportRequest(BaseModel):
+    cv: CVPayload
+    options: PDFExportOptions = Field(default_factory=PDFExportOptions)
 
 
 class SaveCVResponse(BaseModel):
@@ -59,6 +88,8 @@ class AICVPayload(BaseModel):
     experiences: list[Experience]
     programmer_profile: ProgrammerProfile
     certifications: list[Certification]
+    contact_profile: ContactProfile = Field(default_factory=ContactProfile)
+    education: list[Education] = Field(default_factory=list)
 
 
 class ImportCVResponse(BaseModel):
